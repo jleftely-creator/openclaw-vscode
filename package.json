@@ -1,0 +1,71 @@
+{
+  "name": "openclaw-vscode",
+  "displayName": "OpenClaw",
+  "description": "Let your OpenClaw AI agent control VS Code",
+  "version": "0.1.0",
+  "publisher": "openclaw",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jleftely-creator/openclaw-vscode.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "keywords": ["ai", "agent", "openclaw", "claude", "assistant"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "openclaw.connect",
+        "title": "OpenClaw: Connect to Gateway"
+      },
+      {
+        "command": "openclaw.disconnect",
+        "title": "OpenClaw: Disconnect"
+      },
+      {
+        "command": "openclaw.status",
+        "title": "OpenClaw: Show Status"
+      }
+    ],
+    "configuration": {
+      "title": "OpenClaw",
+      "properties": {
+        "openclaw.gatewayUrl": {
+          "type": "string",
+          "default": "ws://127.0.0.1:18789",
+          "description": "WebSocket URL of the OpenClaw gateway"
+        },
+        "openclaw.gatewayToken": {
+          "type": "string",
+          "default": "",
+          "description": "Authentication token for the gateway"
+        },
+        "openclaw.autoConnect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically connect to gateway on startup"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^2.22.0"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}
