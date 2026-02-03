@@ -3,6 +3,6 @@
 src/**
 .gitignore
 *.map
-node_modules/**
 tsconfig.json
 **/*.ts
+!node_modules/ws/**

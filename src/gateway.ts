@@ -1,14 +1,17 @@
 import * as vscode from 'vscode';
-import WebSocket from 'ws';
 import { executeVSCodeAction } from './actions';
+
+// Use dynamic import for ws module in Node.js context
+let WebSocketImpl: typeof WebSocket;
 
 export class GatewayConnection {
   private ws: WebSocket | undefined;
   private context: vscode.ExtensionContext;
   private statusBar: vscode.StatusBarItem;
-  private reconnectTimer: NodeJS.Timeout | undefined;
+  private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private messageId = 0;
   private pendingRequests = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+  private initialized = false;
 
   constructor(context: vscode.ExtensionContext, statusBar: vscode.StatusBarItem) {
     this.context = context;
@@ -16,7 +19,30 @@ export class GatewayConnection {
   }
 
   get isConnected(): boolean {
-    return this.ws?.readyState === WebSocket.OPEN;
+    return this.ws?.readyState === 1; // WebSocket.OPEN = 1
+  }
+
+  private async ensureWebSocket(): Promise<void> {
+    if (WebSocketImpl) return;
+    
+    // In VS Code extension host (Node.js), we need to use the ws package
+    // In webview/browser context, global WebSocket exists
+    if (typeof globalThis.WebSocket !== 'undefined') {
+      WebSocketImpl = globalThis.WebSocket;
+    } else {
+      // Dynamic import for Node.js context
+      try {
+        const ws = await import('ws');
+        WebSocketImpl = ws.default as any;
+      } catch {
+        // Fallback: try require
+        try {
+          WebSocketImpl = require('ws');
+        } catch {
+          throw new Error('WebSocket not available. Install ws package.');
+        }
+      }
+    }
   }
 
   async connect(): Promise<void> {
@@ -29,33 +55,39 @@ export class GatewayConnection {
     const token = config.get<string>('gatewayToken') || '';
 
     this.updateStatus('connecting');
+    console.log(`OpenClaw: Connecting to ${gatewayUrl}`);
 
     try {
-      this.ws = new WebSocket(gatewayUrl);
+      await this.ensureWebSocket();
+      
+      this.ws = new WebSocketImpl(gatewayUrl) as WebSocket;
 
-      this.ws.on('open', () => {
+      this.ws.onopen = () => {
         console.log('OpenClaw: WebSocket connected');
         this.authenticate(token);
-      });
+      };
 
-      this.ws.on('message', (data) => {
-        this.handleMessage(data.toString());
-      });
+      this.ws.onmessage = (event: { data: any }) => {
+        const data = typeof event.data === 'string' ? event.data : event.data.toString();
+        this.handleMessage(data);
+      };
 
-      this.ws.on('close', (code, reason) => {
-        console.log(`OpenClaw: WebSocket closed (${code}): ${reason}`);
+      this.ws.onclose = (event: { code: number; reason: string }) => {
+        console.log(`OpenClaw: WebSocket closed (${event.code}): ${event.reason}`);
         this.updateStatus('disconnected');
         this.scheduleReconnect();
-      });
+      };
 
-      this.ws.on('error', (err) => {
-        console.error('OpenClaw: WebSocket error:', err);
+      this.ws.onerror = (err: Event) => {
+        console.error('OpenClaw: WebSocket error - URL:', gatewayUrl);
         this.updateStatus('error');
-      });
+        vscode.window.showErrorMessage(`OpenClaw: Connection failed to ${gatewayUrl}. Check gateway is running.`);
+      };
 
-    } catch (err) {
-      console.error('OpenClaw: Connection failed:', err);
+    } catch (err: any) {
+      console.error('OpenClaw: Connection failed:', err?.message || err);
       this.updateStatus('error');
+      vscode.window.showErrorMessage(`OpenClaw: ${err?.message || 'Connection failed'}`);
       this.scheduleReconnect();
     }
   }
@@ -76,8 +108,8 @@ export class GatewayConnection {
     this.send({
       type: 'connect',
       params: {
-        role: 'extension',
-        name: 'vscode',
+        role: 'operator',
+        name: 'vscode-extension',
         version: '0.1.0',
         capabilities: ['vscode.openFile', 'vscode.navigate', 'vscode.terminal', 'vscode.edit', 'vscode.diagnostics'],
         auth: token ? { token } : undefined
@@ -86,7 +118,7 @@ export class GatewayConnection {
   }
 
   private send(message: object): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    if (this.ws?.readyState === 1) { // WebSocket.OPEN
       this.ws.send(JSON.stringify(message));
     }
   }
@@ -110,6 +142,7 @@ export class GatewayConnection {
   private async handleMessage(data: string): Promise<void> {
     try {
       const msg = JSON.parse(data);
+      console.log('OpenClaw: Received:', msg.type || msg.method || 'response');
 
       // Handle response to our requests
       if (msg.id && this.pendingRequests.has(msg.id)) {
